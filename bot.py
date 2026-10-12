@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -12,6 +13,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from tgstat import get_post_views
 from sheets import add_post, mark_deleted
@@ -21,15 +23,10 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Регулярка для парсинга ссылок вида https://t.me/channel/123
 TG_POST_RE = re.compile(r"https://t\.me/([\w\d_]+)/(\d+)")
 
 
 def parse_tg_url(url: str):
-    """
-    Парсит ссылку на пост.
-    Возвращает (channel, post_id) или None если не совпало.
-    """
     match = TG_POST_RE.search(url)
     if match:
         return match.group(1), int(match.group(2))
@@ -66,14 +63,12 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     pub_date = datetime.now()
 
-    # Заносим в таблицу
     try:
         row_num = add_post(f"@{channel}", url, pub_date)
     except Exception as e:
         await update.message.reply_text(f"Ошибка при записи в таблицу: {e}")
         return
 
-    # Ставим задачи по расписанию
     schedule_post_jobs(url, pub_date, context.bot, chat_id)
 
     await update.message.reply_text(
@@ -88,10 +83,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def deleted_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Команда: /deleted https://t.me/channel/123
-    Фиксирует финальные просмотры и закрывает строку.
-    """
     args = context.args
     if not args:
         await update.message.reply_text(
@@ -112,8 +103,7 @@ async def deleted_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     views = await get_post_views(url)
     if views is None:
         await update.message.reply_text(
-            "Не удалось получить просмотры через TGStat. "
-            "Возможно пост уже удалён и данные недоступны.\n"
+            "Не удалось получить просмотры через TGStat.\n"
             "Введи просмотры вручную в таблицу."
         )
         return
@@ -133,10 +123,6 @@ async def deleted_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Команда: /stats https://t.me/channel/123
-    Показывает текущие просмотры прямо сейчас.
-    """
     args = context.args
     if not args:
         await update.message.reply_text(
@@ -156,25 +142,39 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    # Увеличенные таймауты для нестабильных соединений
+    request = HTTPXRequest(
+        connect_timeout=30,
+        read_timeout=30,
+        write_timeout=30,
+        pool_timeout=30,
+    )
 
-    # Хендлеры
+    app = Application.builder().token(BOT_TOKEN).request(request).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("deleted", deleted_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
 
-    # Запускаем планировщик
     scheduler.start()
 
-    # Восстанавливаем задачи из таблицы при старте
-    # chat_id берём из переменной окружения (узнаешь после первого /start)
     chat_id = os.getenv("CHAT_ID")
     if chat_id:
         restore_jobs_on_startup(app.bot, int(chat_id))
 
     print("Бот запущен!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Retry loop — если соединение обрывается, перезапускаем
+    while True:
+        try:
+            app.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            )
+        except Exception as e:
+            print(f"Бот упал с ошибкой: {e}. Перезапуск через 10 секунд...")
+            time.sleep(10)
 
 
 if __name__ == "__main__":
