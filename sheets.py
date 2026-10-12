@@ -1,6 +1,8 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import os
+import json
+import base64
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -24,43 +26,43 @@ COL_STATUS = 6        # G - Статус
 
 
 def get_sheet():
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+    # Сначала пробуем переменную окружения (для Koyeb)
+    creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
+    if creds_b64:
+        creds_json = json.loads(base64.b64decode(creds_b64).decode("utf-8"))
+        creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
+    else:
+        # Локально читаем файл
+        creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).sheet1
     return sheet
 
 
 def add_post(channel: str, url: str, pub_date: datetime) -> int:
-    """
-    Добавляет новую строку с постом.
-    Возвращает номер строки (1-based).
-    """
     sheet = get_sheet()
     row = [
         channel,
         url,
         pub_date.strftime("%d.%m.%Y"),
-        "",   # views 24h
-        "",   # views конец месяца
-        "",   # views финал
+        "",
+        "",
+        "",
         "Активен",
     ]
     sheet.append_row(row)
     all_rows = sheet.get_all_values()
-    return len(all_rows)  # номер последней строки
+    return len(all_rows)
 
 
 def update_views(url: str, column: int, views: int):
-    """
-    Обновляет просмотры в нужной колонке для строки с данным URL.
-    column — одна из констант COL_VIEWS_*
-    """
     sheet = get_sheet()
     all_rows = sheet.get_all_values()
 
     for i, row in enumerate(all_rows):
         if len(row) > COL_URL and row[COL_URL] == url:
-            row_number = i + 1  # gspread использует 1-based индексы
+            row_number = i + 1
             col_letter = chr(ord('A') + column)
             sheet.update(f"{col_letter}{row_number}", [[views]])
             return True
@@ -68,9 +70,6 @@ def update_views(url: str, column: int, views: int):
 
 
 def mark_deleted(url: str, views: int):
-    """
-    Ставит финальные просмотры и статус 'Удалён'.
-    """
     sheet = get_sheet()
     all_rows = sheet.get_all_values()
 
@@ -84,16 +83,13 @@ def mark_deleted(url: str, views: int):
 
 
 def get_all_active_posts() -> list[dict]:
-    """
-    Возвращает все активные посты как список словарей.
-    """
     sheet = get_sheet()
     all_rows = sheet.get_all_values()
 
     posts = []
     for i, row in enumerate(all_rows):
         if i == 0:
-            continue  # пропускаем заголовок
+            continue
         if len(row) >= 7 and row[COL_STATUS] == "Активен":
             posts.append({
                 "row": i + 1,
