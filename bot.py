@@ -15,7 +15,7 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
-from tgstat import get_post_views
+from tgstat import get_post_views, get_post_data
 from sheets import add_post, mark_deleted
 from scheduler import scheduler, schedule_post_jobs, restore_jobs_on_startup
 
@@ -61,7 +61,12 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Обрабатываю пост из @{channel}...")
 
-    pub_date = datetime.now()
+    # Берём дату публикации из TGStat
+    post_data = await get_post_data(url)
+    if post_data and post_data.get("date"):
+        pub_date = post_data["date"]
+    else:
+        pub_date = datetime.now()
 
     try:
         row_num = add_post(f"@{channel}", url, pub_date)
@@ -74,7 +79,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Пост добавлен в таблицу (строка {row_num}).\n\n"
         f"Канал: @{channel}\n"
-        f"Дата: {pub_date.strftime('%d.%m.%Y')}\n\n"
+        f"Дата публикации: {pub_date.strftime('%d.%m.%Y')}\n\n"
         f"Что дальше:\n"
         f"• Через 24ч сниму просмотры\n"
         f"• В конце {pub_date.strftime('%B')} сниму просмотры\n"
