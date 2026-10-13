@@ -127,6 +127,8 @@ def restore_jobs_on_startup(bot, chat_id: int):
         try:
             pub_date = datetime.strptime(post["pub_date"], "%d.%m.%Y")
             url = post["url"]
+            # Берём chat_id из таблицы — тот кто добавил пост
+            user_chat_id = post.get("chat_id") or chat_id
 
             # 24ч
             if not post["views_24h"]:
@@ -135,7 +137,7 @@ def restore_jobs_on_startup(bot, chat_id: int):
                     scheduler.add_job(
                         collect_views_24h,
                         trigger=DateTrigger(run_date=time_24h),
-                        args=[url, bot, chat_id],
+                        args=[url, bot, user_chat_id],
                         id=f"24h_{url}",
                         replace_existing=True,
                     )
@@ -147,7 +149,7 @@ def restore_jobs_on_startup(bot, chat_id: int):
                     scheduler.add_job(
                         collect_views_end_of_month,
                         trigger=DateTrigger(run_date=end_of_month),
-                        args=[url, bot, chat_id],
+                        args=[url, bot, user_chat_id],
                         id=f"month_{url}",
                         replace_existing=True,
                     )
@@ -159,7 +161,7 @@ def restore_jobs_on_startup(bot, chat_id: int):
                     scheduler.add_job(
                         collect_views_30d_and_remind,
                         trigger=DateTrigger(run_date=time_30d),
-                        args=[url, bot, chat_id],
+                        args=[url, bot, user_chat_id],
                         id=f"30d_{url}",
                         replace_existing=True,
                     )

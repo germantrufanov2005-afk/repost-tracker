@@ -23,16 +23,15 @@ COL_VIEWS_24H = 3     # D - Views через 24ч
 COL_VIEWS_MONTH = 4   # E - Views конец месяца
 COL_VIEWS_FINAL = 5   # F - Views финал
 COL_STATUS = 6        # G - Статус
+COL_CHAT_ID = 7       # H - chat_id кто добавил
 
 
 def get_sheet():
-    # Сначала пробуем переменную окружения (для Koyeb)
     creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
     if creds_b64:
         creds_json = json.loads(base64.b64decode(creds_b64).decode("utf-8"))
         creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
     else:
-        # Локально читаем файл
         creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
 
     client = gspread.authorize(creds)
@@ -40,7 +39,7 @@ def get_sheet():
     return sheet
 
 
-def add_post(channel: str, url: str, pub_date: datetime) -> int:
+def add_post(channel: str, url: str, pub_date: datetime, chat_id: int) -> int:
     sheet = get_sheet()
     row = [
         channel,
@@ -50,6 +49,7 @@ def add_post(channel: str, url: str, pub_date: datetime) -> int:
         "",
         "",
         "Активен",
+        str(chat_id),
     ]
     sheet.append_row(row)
     all_rows = sheet.get_all_values()
@@ -91,6 +91,7 @@ def get_all_active_posts() -> list[dict]:
         if i == 0:
             continue
         if len(row) >= 7 and row[COL_STATUS] == "Активен":
+            chat_id = int(row[COL_CHAT_ID]) if len(row) > COL_CHAT_ID and row[COL_CHAT_ID] else None
             posts.append({
                 "row": i + 1,
                 "channel": row[COL_CHANNEL],
@@ -100,5 +101,6 @@ def get_all_active_posts() -> list[dict]:
                 "views_month": row[COL_VIEWS_MONTH],
                 "views_final": row[COL_VIEWS_FINAL],
                 "status": row[COL_STATUS],
+                "chat_id": chat_id,
             })
     return posts

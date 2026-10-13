@@ -69,7 +69,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pub_date = datetime.now()
 
     try:
-        row_num = add_post(f"@{channel}", url, pub_date)
+        row_num = add_post(f"@{channel}", url, pub_date, chat_id)
     except Exception as e:
         await update.message.reply_text(f"Ошибка при записи в таблицу: {e}")
         return
